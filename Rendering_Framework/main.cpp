@@ -41,7 +41,8 @@ struct DrawElementsIndirectCommand {
 	unsigned int firstIndex;
 	unsigned int baseVertex;
 	unsigned int baseInstance;
-};
+};
+
 // ==============================================
 SceneRenderer *defaultRenderer = nullptr;
 
@@ -256,7 +257,8 @@ bool initializeGL(){
 	glGenBuffers(1, &validInstanceDataBufferHandle);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, validInstanceDataBufferHandle);
 	glBufferStorage(GL_SHADER_STORAGE_BUFFER, (samples[0]->m_numSample + samples[1]->m_numSample + samples[2]->m_numSample) * 3 * sizeof(float), nullptr, GL_MAP_READ_BIT);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, validInstanceDataBufferHandle);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, validInstanceDataBufferHandle);
+
 	const int DRAW_COMMANDS_COUNT = 3;
 	DrawElementsIndirectCommand drawCommands[DRAW_COMMANDS_COUNT];
 
@@ -335,7 +337,8 @@ void paintGL(){
 	defaultRenderer->setProjection(playerProjMat);
 	defaultRenderer->setView(playerViewMat);
 	defaultRenderer->renderPass();
-	// ===============================	
+	// ===============================
+	
 	program->use();
 	program->setInt("colorTexture", plants[0]->texture.textureID);
 	glBindVertexArray(model->vao);
@@ -350,7 +353,9 @@ void paintGL(){
 	program->setMat4("projMat", playerProjMat);
 	program->setMat4("viewMat", playerViewMat);
 	program->setMat4("modelMat", glm::mat4(1.0f));
-	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, 3, 0);	glUseProgram(0);
+	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, 3, 0);
+
+	glUseProgram(0);
 	glBindVertexArray(0);
 
 	ImGui::Begin("My name is window");
