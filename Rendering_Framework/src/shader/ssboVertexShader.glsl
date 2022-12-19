@@ -13,9 +13,9 @@ out vec3 f_uv;
 
 uniform mat4 projMat;
 uniform mat4 viewMat;
-uniform mat4 modelMat;
 
 void main() {
+	mat4 modelMat = mat4(1.0);
 	vec4 worldVertex = modelMat * vec4(v_vertex, 1.0) + v_worldPosOffset;
 	vec4 worldNormal = modelMat * vec4(v_normal, 0.0);
 	vec4 viewVertex = viewMat * worldVertex;

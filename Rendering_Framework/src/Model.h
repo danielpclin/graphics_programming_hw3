@@ -25,7 +25,13 @@ public:
         GLuint textureID;
     };
     std::vector<Mesh> meshes;
+    std::vector<unsigned char> textures;
+	GLuint textureID;
 private:
+	const int NUM_TEXTURE = 3;
+	const int IMG_WIDTH = 1024;
+	const int IMG_HEIGHT = 1024;
+	const int IMG_CHANNEL = 4;
 	std::vector<float> vertices;
 	std::vector<int> indices;
     Mesh processMesh(const aiMesh *mesh) {
@@ -85,11 +91,8 @@ public:
 
         const aiScene* scene = importer.ReadFile(pFile.c_str(),
             aiProcess_Triangulate |
-            aiProcess_JoinIdenticalVertices |
             aiProcess_GenNormals |
-            aiProcess_FlipUVs |
-            aiProcess_GenUVCoords |
-            aiProcess_SortByPType
+            aiProcess_FlipUVs
         );
 
         // If the import failed, report it
@@ -135,23 +138,14 @@ public:
 		std::cout << "VAO: " << vao << std::endl;
 	}
 
-    Texture loadTexture(std::string const &textureFile) {
-        GLuint textureID;
-        glGenTextures(1, &textureID);
+    void loadTexture(std::string const &textureFile) {
 
         int width, height, nrComponents;
         unsigned char *data = stbi_load(textureFile.c_str(), &width, &height, &nrComponents, 4);
+		std::cout << width << " " << height << " " << nrComponents << " " << std::endl;
         if (data)
         {
-            glActiveTexture(GL_TEXTURE0 + textureID);
-            glBindTexture(GL_TEXTURE_2D, textureID);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-            glGenerateMipmap(GL_TEXTURE_2D);
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			textures.insert(textures.end(), data, data + (1024 * 1024 * 4) * sizeof(unsigned char));
 
             std::cout << "Texture loaded: " << textureFile << std::endl;
             stbi_image_free(data);
@@ -161,6 +155,20 @@ public:
             std::cout << "Texture failed to load at path: " << textureFile << std::endl;
             stbi_image_free(data);
         }
-        return Texture{ textureID };
     }
+
+	void buildTexture() {
+		glGenTextures(1, &textureID);
+		// create buffers/arrays
+		glActiveTexture(GL_TEXTURE0 + textureID);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, textureID);
+		glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, IMG_WIDTH, IMG_HEIGHT, NUM_TEXTURE);
+		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, IMG_WIDTH, IMG_HEIGHT, NUM_TEXTURE, GL_RGBA, GL_UNSIGNED_BYTE, textures.data());
+		glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+		std::cout << "Texture: " << textureID << std::endl;
+	}
 };

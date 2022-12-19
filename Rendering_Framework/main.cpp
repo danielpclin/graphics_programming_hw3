@@ -9,6 +9,7 @@
 #include "src/Model.h"
 #include "src/ModelOld.h"
 #include "src/Program.h"
+#include "src/MyMovingTrack.h"
 
 #pragma comment (lib, "lib-vc2015\\glfw3.lib")
 #pragma comment(lib, "assimp-vc141-mt.lib")
@@ -44,6 +45,7 @@ struct DrawElementsIndirectCommand {
 };
 
 // ==============================================
+const int DRAW_COMMANDS_COUNT = 3;
 SceneRenderer *defaultRenderer = nullptr;
 
 glm::mat4 godProjMat;
@@ -55,9 +57,27 @@ ViewFrustumSceneObject* viewFrustumSO = nullptr;
 InfinityPlane *infinityPlane = nullptr;
 
 Program* program;
+Program* slimeProgram;
+Program* resetProgram;
+Program* collectProgram;
 ModelOld* plants[3];
 Model* model;
+Model* slimeModel;
 MyPoissonSample* samples[3];
+IMovingTrack* movingTrack;
+int NUM_INSTANCES = 0;
+glm::vec3 playerPosition = glm::vec3(0.0, 8.0, 10.0);
+glm::vec3 playerCenter = glm::vec3(0.0, 5.0, 0.0);
+
+// God Camera
+bool mouseClick = false;
+glm::vec3 godPosition = glm::vec3(0.0, 50.0, 20.0);
+float mouse_last_x = 0;
+float mouse_last_y = 0;
+bool firstMouse = true;
+glm::vec3 frontVec = normalize(glm::vec3(0.0, 20.0, -10.0) - glm::vec3(0.0, 50.0, 20.0));
+float yawF = atan2(frontVec.z, frontVec.x);
+float pitchF = asin(frontVec.y);
 // ==============================================
 
 void updateWhenPlayerProjectionChanged(const float nearDepth, const float farDepth);
@@ -106,9 +126,9 @@ int main(){
 		return 0;
 	}
 
-	glEnable(GL_DEBUG_OUTPUT);
-	if (glDebugMessageCallback)
-		glDebugMessageCallback(debugMessageCallback, nullptr);
+	//glEnable(GL_DEBUG_OUTPUT);
+	//if (glDebugMessageCallback)
+	//	glDebugMessageCallback(debugMessageCallback, nullptr);
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -159,19 +179,17 @@ void vsyncDisabled(GLFWwindow *window) {
 	}
 }
 
-
-
 bool initializeGL(){
 	// initialize shader program
 	// vertex shader
 	Shader* vsShader = new Shader(GL_VERTEX_SHADER);
 	vsShader->createShaderFromFile("src/shader/oglVertexShader.glsl");
-	std::cout << vsShader->shaderInfoLog() << "\n";
+	std::cout << vsShader->shaderInfoLog() << std::endl;
 
 	// fragment shader
 	Shader* fsShader = new Shader(GL_FRAGMENT_SHADER);
 	fsShader->createShaderFromFile("src/shader/oglFragmentShader.glsl");
-	std::cout << fsShader->shaderInfoLog() << "\n";
+	std::cout << fsShader->shaderInfoLog() << std::endl;
 
 	// shader program
 	ShaderProgram* shaderProgram = new ShaderProgram();
@@ -197,8 +215,9 @@ bool initializeGL(){
 
 	// =================================================================
 	// initialize camera
-	godViewMat = glm::lookAt(glm::vec3(0.0, 50.0, 20.0), glm::vec3(0.0, 20.0, -10.0), glm::vec3(0.0, 1.0, 0.0));
-	playerViewMat = glm::lookAt(glm::vec3(0.0, 8.0, 10.0), glm::vec3(0.0, 5.0, 0.0), glm::vec3(0.0, 1.0, 0.0));
+	godViewMat = glm::lookAt(godPosition, godPosition + frontVec, glm::vec3(0.0, 1.0, 0.0));
+	playerViewMat = glm::lookAt(playerPosition, playerCenter, glm::vec3(0.0, 1.0, 0.0));
+	std::cout << frontVec << std::endl;
 
 	const glm::vec4 directionalLightDir = glm::vec4(0.4, 0.5, 0.8, 0.0);
 	
@@ -215,53 +234,60 @@ bool initializeGL(){
 	// =================================================================	
 	
 	glUseProgram(0);
-	// setup grass
-	plants[0] = new ModelOld("assets/grassB.obj", "assets/grassB_albedo.png");
-	plants[1] = new ModelOld("assets/bush01_lod2.obj", "assets/bush01.png");
-	plants[2] = new ModelOld("assets/bush05_lod2.obj", "assets/bush05.png");
 
+	// setup grass
 	model = new Model();
 	model->loadModel("assets/grassB.obj");
 	model->loadModel("assets/bush01_lod2.obj");
 	model->loadModel("assets/bush05_lod2.obj");
 	model->buildVAO();
+	model->loadTexture("assets/grassB_albedo.png");
+	model->loadTexture("assets/bush01.png");
+	model->loadTexture("assets/bush05.png");
+	model->buildTexture();
 
 	samples[0] = MyPoissonSample::fromFile("assets/poissonPoints_155304.ppd");
 	samples[1] = MyPoissonSample::fromFile("assets/poissonPoints_1010.ppd");
 	samples[2] = MyPoissonSample::fromFile("assets/poissonPoints_2797.ppd");
-
-	program = new Program("src/shader/ssboVertexShader.glsl", "src/shader/ssboFragmentShader.glsl");
-	std::cout << "Program id: " << program->ID << std::endl;
-	
 	std::vector<float> positions;
 	for (int i = 0; i < 3; i++)
 	{
-		positions.insert(positions.end(), samples[i]->m_positions, samples[i]->m_positions + (samples[i]->m_numSample) * 3);
+		for (int j = 0; j < samples[i]->m_numSample; j++)
+		{
+			positions.push_back(samples[i]->m_positions[j*3]);
+			positions.push_back(samples[i]->m_positions[j*3+1]);
+			positions.push_back(samples[i]->m_positions[j*3+2]);
+			positions.push_back(0.0);
+		}
 	}
-	//assert(positions.size() == (samples[0]->m_numSample + samples[1]->m_numSample + samples[2]->m_numSample) * 3);
-	//std::cout << "OFFSET " << samples[0]->m_positions[3] << " " << samples[0]->m_positions[4] << " " << samples[0]->m_positions[5] << std::endl;
-	//std::cout << "OFFSET " << samples[1]->m_positions[3] << " " << samples[1]->m_positions[4] << " " << samples[1]->m_positions[5] << std::endl;
-	//std::cout << "OFFSET " << samples[2]->m_positions[3] << " " << samples[2]->m_positions[4] << " " << samples[2]->m_positions[5] << std::endl;
-	//std::cout << "OFFSET " << positions[3] << " " << positions[4] << " " << positions[5] << std::endl;
-	//std::cout << "OFFSET " << positions[samples[0]->m_numSample * 3 + 3] << " " << positions[samples[0]->m_numSample * 3 + 4] << " " << positions[samples[0]->m_numSample * 3 + 5] << std::endl;
-	//std::cout << "OFFSET " << positions[(samples[0]->m_numSample + samples[1]->m_numSample) * 3 + 3] << " " << positions[(samples[0]->m_numSample + samples[1]->m_numSample) * 3 + 4] << " " << positions[(samples[0]->m_numSample + samples[1]->m_numSample) * 3 + 5] << std::endl;
+	NUM_INSTANCES = positions.size()/4;
+
+	slimeModel = new Model();
+	slimeModel->loadModel("assets/slime.obj");
+	slimeModel->buildVAO();
+
+	movingTrack = new IMovingTrack();
+
+	program = new Program("src/shader/ssboVertexShader.glsl", "src/shader/ssboFragmentShader.glsl");
+	slimeProgram = new Program("src/shader/slimeVertexShader.glsl", "src/shader/slimeFragmentShader.glsl");
+	resetProgram = new Program("src/shader/resetComputeShader.glsl");
+	collectProgram = new Program("src/shader/collectComputeShader.glsl");
 
 	// TODO ssbo is raw instance data ssbo
 	GLuint rawInstanceDataBufferHandle;
 	glGenBuffers(1, &rawInstanceDataBufferHandle);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, rawInstanceDataBufferHandle);
-	glBufferStorage(GL_SHADER_STORAGE_BUFFER, positions.size() * sizeof(float), positions.data(), GL_MAP_READ_BIT);
+	glBufferStorage(GL_SHADER_STORAGE_BUFFER, positions.size() * sizeof(float), positions.data(), 0);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, rawInstanceDataBufferHandle);
 
 	GLuint validInstanceDataBufferHandle;
 	glGenBuffers(1, &validInstanceDataBufferHandle);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, validInstanceDataBufferHandle);
-	glBufferStorage(GL_SHADER_STORAGE_BUFFER, (samples[0]->m_numSample + samples[1]->m_numSample + samples[2]->m_numSample) * 3 * sizeof(float), nullptr, GL_MAP_READ_BIT);
+	glBufferStorage(GL_SHADER_STORAGE_BUFFER, positions.size() * sizeof(float), nullptr, 0);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, validInstanceDataBufferHandle);
 
-	const int DRAW_COMMANDS_COUNT = 3;
+	
 	DrawElementsIndirectCommand drawCommands[DRAW_COMMANDS_COUNT];
-
 	for (int i = 0; i < DRAW_COMMANDS_COUNT; i++)
 	{
 		drawCommands[i].count = model->meshes[i].count;
@@ -269,6 +295,9 @@ bool initializeGL(){
 		drawCommands[i].firstIndex = model->meshes[i].indicesOffset;
 		drawCommands[i].baseVertex = model->meshes[i].verticesOffset;
 		drawCommands[i].baseInstance = 0;
+		if (i > 0) {
+			drawCommands[i].baseInstance = drawCommands[i - 1].baseInstance + samples[i - 1]->m_numSample;
+		}
 		std::cout << "======================="<< std::endl;
 		std::cout << "Draw command " << i << std::endl;
 		std::cout << "count " << drawCommands[i].count << std::endl;
@@ -277,21 +306,19 @@ bool initializeGL(){
 		std::cout << "baseVertex " << drawCommands[i].baseVertex << std::endl;
 		std::cout << "baseInstance " << drawCommands[i].baseInstance << std::endl;
 	}
-	drawCommands[1].baseInstance = samples[0]->m_numSample;
-	drawCommands[2].baseInstance = samples[0]->m_numSample + samples[1]->m_numSample;
+	
 
 	GLuint cmdBufferHandle;
 	glGenBuffers(1, &cmdBufferHandle);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, cmdBufferHandle);
-	glBufferStorage(GL_SHADER_STORAGE_BUFFER, sizeof(drawCommands), drawCommands, GL_MAP_READ_BIT);
+	glBufferStorage(GL_SHADER_STORAGE_BUFFER, sizeof(drawCommands), drawCommands, 0);
 	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, cmdBufferHandle);
 
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-
 	glBindVertexArray(model->vao);
-	glBindBuffer(GL_ARRAY_BUFFER, rawInstanceDataBufferHandle);
-	glVertexAttribPointer(3, 3, GL_FLOAT, false, 0, nullptr);
+	glBindBuffer(GL_ARRAY_BUFFER, validInstanceDataBufferHandle);
+	glVertexAttribPointer(3, 4, GL_FLOAT, false, 0, nullptr);
 	glEnableVertexAttribArray(3);
 	glVertexAttribDivisor(3, 1);
 
@@ -300,8 +327,7 @@ bool initializeGL(){
 
 	glBindVertexArray(0);
 
-	m_imguiPanel = new MyImGuiPanel();	
-	
+	m_imguiPanel = new MyImGuiPanel();
 	return true;
 }
 void resizeGL(GLFWwindow *window, int w, int h){
@@ -315,11 +341,11 @@ void paintGL(){
 
 	// ===============================
 	// update infinity plane with player camera
-	const glm::vec3 PLAYER_VIEW_POSITION = glm::vec3(0.0, 8.0, 10.0);
-	infinityPlane->updateState(playerViewMat, PLAYER_VIEW_POSITION);
+
+	infinityPlane->updateState(playerViewMat, playerPosition);
 
 	// update player camera view frustum
-	viewFrustumSO->updateState(playerViewMat, PLAYER_VIEW_POSITION);
+	viewFrustumSO->updateState(playerViewMat, playerPosition);
 
 	// =============================================
 	// start new frame
@@ -339,21 +365,51 @@ void paintGL(){
 	defaultRenderer->renderPass();
 	// ===============================
 	
-	program->use();
-	program->setInt("colorTexture", plants[0]->texture.textureID);
-	glBindVertexArray(model->vao);
+	movingTrack->update();
+	glm::vec3 position = movingTrack->position();
 
+	// shader program for resetting render parameters
+	resetProgram->use();
+	glDispatchCompute(DRAW_COMMANDS_COUNT, 1, 1);
+	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+	// shader program for collecting visible instances
+	collectProgram->use();
+	// send the necessary information to compute shader (must after useProgram)
+	collectProgram->setInt("numMaxInstance", NUM_INSTANCES);
+	collectProgram->setMat4("viewProjMat", playerProjMat * playerViewMat);
+	collectProgram->setVec3("slimePos", position);
+	// start GPU process
+	glDispatchCompute((NUM_INSTANCES / 1024) + 1, 1, 1);
+	glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+	program->use();
+	program->setInt("colorTexture", model->textureID);
+	glBindVertexArray(model->vao);
+	
 	glViewport(0, 0, HALF_W, FRAME_HEIGHT);
 	program->setMat4("projMat", godProjMat);
 	program->setMat4("viewMat", godViewMat);
-	program->setMat4("modelMat", glm::mat4(1.0f));
-	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, 3, 0);
+	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, DRAW_COMMANDS_COUNT, 0);
 
 	glViewport(HALF_W, 0, HALF_W, FRAME_HEIGHT);
 	program->setMat4("projMat", playerProjMat);
 	program->setMat4("viewMat", playerViewMat);
-	program->setMat4("modelMat", glm::mat4(1.0f));
-	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, 3, 0);
+	glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, DRAW_COMMANDS_COUNT, 0);
+
+	slimeProgram->use();
+	slimeProgram->setMat4("modelMat", glm::translate(position));
+	glBindVertexArray(slimeModel->vao);
+
+	glViewport(0, 0, HALF_W, FRAME_HEIGHT);
+	slimeProgram->setMat4("projMat", godProjMat);
+	slimeProgram->setMat4("viewMat", godViewMat);
+	glDrawElements(GL_TRIANGLES, slimeModel->meshes[0].count, GL_UNSIGNED_INT, (GLvoid *)0);
+
+	glViewport(HALF_W, 0, HALF_W, FRAME_HEIGHT);
+	slimeProgram->setMat4("projMat", playerProjMat);
+	slimeProgram->setMat4("viewMat", playerViewMat);
+	glDrawElements(GL_TRIANGLES, slimeModel->meshes[0].count, GL_UNSIGNED_INT, (GLvoid *)0);
 
 	glUseProgram(0);
 	glBindVertexArray(0);
@@ -366,11 +422,91 @@ void paintGL(){
 
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
-
+glm::vec3 rotateCenterAccordingToEye(const glm::vec3& center, const glm::vec3& eye, const glm::mat4& viewMat, const float rad) {
+	glm::mat4 vt = glm::transpose(viewMat);
+	glm::vec4 yAxisVec4 = vt[1];
+	glm::vec3 yAxis(yAxisVec4.x, yAxisVec4.y, yAxisVec4.z);
+	glm::quat q = glm::angleAxis(rad, yAxis);
+	glm::mat4 rotMat = glm::toMat4(q);
+	glm::vec3 p = center - eye;
+	glm::vec4 resP = rotMat * glm::vec4(p.x, p.y, p.z, 1.0);
+	return glm::vec3(resP.x + eye.x, resP.y + eye.y, resP.z + eye.z);
+}
+void updateCameraVectors() {
+	glm::vec3 _front;
+	_front.x = cos(yawF) * cos(pitchF);
+	_front.y = sin(pitchF);
+	_front.z = sin(yawF) * cos(pitchF);
+	frontVec = normalize(_front);
+}
 ////////////////////////////////////////////////
-void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods){}
-void cursorPosCallback(GLFWwindow* window, double x, double y){}
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods){}
+void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods){
+	ImGuiIO& io = ImGui::GetIO();
+	if (io.WantCaptureMouse)
+		return;
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+		mouseClick = true;
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+		mouseClick = false;
+		firstMouse = true;
+	}
+
+}
+void cursorPosCallback(GLFWwindow* window, double x, double y){
+	if (!mouseClick) {
+		return;
+	}
+	if (firstMouse)
+	{
+		mouse_last_x = x;
+		mouse_last_y = y;
+		firstMouse = false;
+	}
+
+	float x_offset = x - mouse_last_x;
+	float y_offset = mouse_last_y - y;
+
+	mouse_last_x = x;
+	mouse_last_y = y;
+
+
+	float mouseSensitivity = 0.005;
+	yawF += x_offset * mouseSensitivity;
+	pitchF += y_offset * mouseSensitivity;
+
+	if (pitchF > glm::radians(89.0f))
+		pitchF = glm::radians(89.0f);
+	if (pitchF < glm::radians(-89.0f))
+		pitchF = glm::radians(-89.0f);
+	updateCameraVectors();
+	godViewMat = glm::lookAt(godPosition, godPosition + frontVec, glm::vec3(0.0, 1.0, 0.0));
+}
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods){
+	// wasd player to move camera
+	if (key == GLFW_KEY_W && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		glm::vec3 forward = playerCenter - playerPosition;
+		forward.y = 0;
+		forward = glm::normalize(forward);
+		playerPosition += forward * 0.2f;
+		playerCenter += forward * 0.2f;
+	}
+	if (key == GLFW_KEY_A && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		playerCenter = rotateCenterAccordingToEye(playerCenter, playerPosition, playerViewMat, 0.01);
+	if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		glm::vec3 forward = playerCenter - playerPosition;
+		forward.y = 0;
+		forward = glm::normalize(forward);
+		playerPosition -= forward * 0.2f;
+		playerCenter -= forward * 0.2f;
+	}
+	if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+		playerCenter = rotateCenterAccordingToEye(playerCenter, playerPosition, playerViewMat, -0.01);
+	}
+	godPosition = playerPosition + glm::vec3(0.0, 42.0, 10.0);
+	godViewMat = glm::lookAt(godPosition, godPosition + frontVec, glm::vec3(0.0, 1.0, 0.0));
+	playerViewMat = glm::lookAt(playerPosition, playerCenter, glm::vec3(0.0, 1.0, 0.0));
+	std::cout << "key callback: " << (char)key << " action: " << action << std::endl;
+}
 void mouseScrollCallback(GLFWwindow *window, double xoffset, double yoffset) {}
 
 void updateWhenPlayerProjectionChanged(const float nearDepth, const float farDepth) {
