@@ -77,7 +77,16 @@ private:
 		std::cout << "Vertices offest: " << verticesOffset << std::endl;
 		std::cout << "Indices offest: " << indicesOffset << std::endl;
 
-        return Mesh{ 3 * mesh->mNumFaces, verticesOffset/9, indicesOffset/3 };
+		if (verticesOffset != 0) {
+			verticesOffset /= 9;
+			verticesOffset--;
+		}
+		if (indicesOffset != 0) {
+			indicesOffset /= 3;
+			indicesOffset--;
+		}
+
+        return Mesh{ 3 * mesh->mNumFaces, verticesOffset, indicesOffset };
     }
 
 public:
